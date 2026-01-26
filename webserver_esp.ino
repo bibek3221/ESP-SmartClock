@@ -1,3 +1,8 @@
+
+
+// This shows weather information on a web page served by the ESP8266. 
+
+
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
@@ -26,132 +31,195 @@ bool citySelected = false;
 unsigned long lastFetch = 0;
 unsigned long startTime = 0;
 
-/* ---------- HTML ---------- */
+/*---------- HTML PAGE ----------*/
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Weather</title>
+<title>ESP Weather</title>
+
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px;text-align:center}
-h2{margin:20px 0}
-.box{background:#2a2a2a;padding:20px;border-radius:8px;max-width:400px;margin:20px auto}
-input{width:100%;padding:12px;border:none;border-radius:5px;margin:10px 0;font-size:16px}
-button{width:100%;padding:12px;border:none;border-radius:5px;background:#4CAF50;color:#fff;font-size:16px;cursor:pointer;margin:5px 0}
-button:hover{background:#45a049}
-.btn-change{background:#2196F3}
-.btn-change:hover{background:#0b7dda}
-p{margin:15px 0;font-size:18px}
-.label{color:#888;font-size:14px}
-.info{background:#1a1a1a;padding:15px;border-radius:8px;margin:20px auto;max-width:400px;text-align:left}
-.info-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #333}
-.info-item:last-child{border-bottom:none}
-.info-label{color:#888;font-size:14px}
-.info-value{color:#fff;font-size:14px;font-weight:bold}
+body{
+  font-family:system-ui,-apple-system,BlinkMacSystemFont;
+  background:#f4f6f8;
+  color:#222;
+  padding:20px;
+  text-align:center
+}
+h2{margin:15px 0;font-weight:600}
+
+.card{
+  background:#fff;
+  padding:20px;
+  border-radius:12px;
+  max-width:420px;
+  margin:20px auto;
+  box-shadow:0 10px 25px rgba(0,0,0,.08)
+}
+
+input{
+  width:100%;
+  padding:12px;
+  border:1px solid #ddd;
+  border-radius:8px;
+  margin:12px 0;
+  font-size:16px
+}
+
+button{
+  width:100%;
+  padding:12px;
+  border:none;
+  border-radius:8px;
+  background:#4f46e5;
+  color:#fff;
+  font-size:16px;
+  cursor:pointer
+}
+button:hover{background:#4338ca}
+
+.value{font-size:26px;font-weight:600;margin-top:6px}
+.label{font-size:14px;color:#777}
+
+.info{
+  text-align:left;
+  margin-top:10px
+}
+.row{
+  display:flex;
+  justify-content:space-between;
+  padding:8px 0;
+  border-bottom:1px solid #eee;
+  font-size:14px
+}
+.row:last-child{border:none}
+
+/* ---------- Spinner ---------- */
+#spinner{
+  position:fixed;
+  inset:0;
+  background:rgba(255,255,255,.85);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  z-index:999
+}
+.loader{
+  width:45px;
+  height:45px;
+  border:4px solid #ddd;
+  border-top:4px solid #4f46e5;
+  border-radius:50%;
+  animation:spin 1s linear infinite
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#alert{
+  margin-top:15px;
+  color:#333;
+  font-size:14px
+}
 </style>
 </head>
+
 <body>
 
-<h2 id="title">Weather Station</h2>
+<h2 id="title">ESP Weather</h2>
 
-<div id="setup" style="display:none">
-  <div class="box">
-    <input id="city" placeholder="Enter city name">
-    <button onclick="saveCity()">Save</button>
-  </div>
+<div id="setup" class="card" style="display:none">
+  <input id="city" placeholder="Enter city name">
+  <button onclick="saveCity()">Save City</button>
 </div>
 
 <div id="weather" style="display:none">
-  <div class="box">
-    <p><span class="label">Temperature</span><br><span id="t">--</span>°C</p>
-    <p><span class="label">Feels Like</span><br><span id="f">--</span>°C</p>
-    <p><span class="label">Humidity</span><br><span id="h">--</span>%</p>
-    <p><span class="label">Wind Speed</span><br><span id="w">--</span> kph</p>
-    <button class="btn-change" onclick="changeCity()">Change City</button>
+
+  <div class="card">
+    <div class="label">Temperature</div>
+    <div class="value"><span id="t">--</span>°C</div>
+
+    <div class="label">Feels Like</div>
+    <div class="value"><span id="f">--</span>°C</div>
+
+    <div class="label">Humidity</div>
+    <div class="value"><span id="h">--</span>%</div>
+
+    <div class="label">Wind</div>
+    <div class="value"><span id="w">--</span> kph</div>
+
+    <button style="margin-top:15px;background:#e11d48" onclick="changeCity()">Change City</button>
   </div>
 
-  <div class="info">
-    <div class="info-item">
-      <span class="info-label">WiFi SSID</span>
-      <span class="info-value" id="wifi">--</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Signal Strength</span>
-      <span class="info-value" id="signal">--</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">IP Address</span>
-      <span class="info-value" id="ip">--</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Uptime</span>
-      <span class="info-value" id="uptime">--</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Free Heap</span>
-      <span class="info-value" id="heap">--</span>
-    </div>
-    <div class="info-item">
-      <span class="info-label">Chip ID</span>
-      <span class="info-value" id="chip">--</span>
-    </div>
+  <div class="card info">
+    <div class="row"><span>WiFi</span><span id="wifi">--</span></div>
+    <div class="row"><span>Signal</span><span id="signal">--</span></div>
+    <div class="row"><span>IP</span><span id="ip">--</span></div>
+    <div class="row"><span>Uptime</span><span id="uptime">--</span></div>
+    <div class="row"><span>Free Heap</span><span id="heap">--</span></div>
+    <div class="row"><span>Chip ID</span><span id="chip">--</span></div>
   </div>
+
+</div>
+
+<!-- Spinner -->
+<div id="spinner">
+  <div class="loader"></div>
+  <div id="alert">Saving city… Please wait</div>
 </div>
 
 <script>
-let isChanging = false;
+let changing=false;
 
 async function load(){
-  if(isChanging) return;
-  
-  const r = await fetch('/weather');
-  const j = await r.json();
+  if(changing) return;
+  const r=await fetch('/weather');
+  const j=await r.json();
 
   if(!j.citySelected){
-    document.getElementById('setup').style.display='block';
-    document.getElementById('weather').style.display='none';
-    document.getElementById('title').innerText='Select City';
+    setup.style.display='block';
+    weather.style.display='none';
+    title.innerText='Select City';
   }else{
-    document.getElementById('setup').style.display='none';
-    document.getElementById('weather').style.display='block';
-    document.getElementById('title').innerText=j.city;
-    document.getElementById('t').innerText=j.temperature;
-    document.getElementById('f').innerText=j.feelsLike;
-    document.getElementById('h').innerText=j.humidity;
-    document.getElementById('w').innerText=j.windSpeed;
-    
-    // System info
-    document.getElementById('wifi').innerText=j.wifi;
-    document.getElementById('signal').innerText=j.signal + ' dBm';
-    document.getElementById('ip').innerText=j.ip;
-    document.getElementById('uptime').innerText=j.uptime;
-    document.getElementById('heap').innerText=j.freeHeap + ' KB';
-    document.getElementById('chip').innerText=j.chipId;
+    setup.style.display='none';
+    weather.style.display='block';
+    title.innerText=j.city;
+
+    t.innerText=j.temperature;
+    f.innerText=j.feelsLike;
+    h.innerText=j.humidity;
+    w.innerText=j.windSpeed;
+
+    wifi.innerText=j.wifi;
+    signal.innerText=j.signal+' dBm';
+    ip.innerText=j.ip;
+    uptime.innerText=j.uptime;
+    heap.innerText=j.freeHeap+' KB';
+    chip.innerText=j.chipId;
   }
 }
 
 async function saveCity(){
-  const c=document.getElementById('city').value.trim();
-  if(!c) return alert('Please enter a city name');
-  
+  const c=city.value.trim();
+  if(!c) return alert('Enter city name');
+
+  changing=true;
+  spinner.style.display='flex';
+  alert.innerText='City saved. Refresh page after 5 seconds';
+
   await fetch('/setCity?name='+encodeURIComponent(c));
-  document.getElementById('city').value='';
-  
-  // Wait for weather to be fetched, then show it
-  isChanging = false;
-  setTimeout(async () => {
-    await load();
-  }, 2000);
+
+  setTimeout(()=>{
+    spinner.style.display='none';
+    changing=false;
+  },5000);
 }
 
 function changeCity(){
-  isChanging = true;
-  document.getElementById('setup').style.display='block';
-  document.getElementById('weather').style.display='none';
-  document.getElementById('title').innerText='Select City';
-  document.getElementById('city').focus();
+  setup.style.display='block';
+  weather.style.display='none';
+  title.innerText='Select City';
 }
 
 load();
@@ -161,6 +229,7 @@ setInterval(load,10000);
 </body>
 </html>
 )rawliteral";
+
 
 /* ---------- EEPROM ---------- */
 void saveCity(String city){
