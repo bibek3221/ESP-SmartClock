@@ -3,9 +3,9 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
-const char* ssid = "Bibek";
-const char* password = "Bankim@2004--indranil";
-const char* apikey = "4e8068c62ffc4034a07163742262401"
+const char* ssid = "your wifi ssid ";
+const char* password = "your wifi password ";
+const char* apikey = "yiur api key "
 
 void setup() {
   Serial.begin(9600);
