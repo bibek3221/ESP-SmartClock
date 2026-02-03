@@ -13,8 +13,10 @@
 #define SSID_ADDR      0
 #define PASS_ADDR      32
 #define CITY_ADDR      64
+#define LAT_ADDR       96
+#define LON_ADDR       100
 #define WIFI_TIMEOUT   15000
-#define APIKEY         "nope"  // Replace with your API key
+#define APIKEY         "4e8068c62ffc4034a07163742262401"  // Replace with your API key
 /* ========================================== */
 
 AsyncWebServer server(80);
@@ -27,6 +29,9 @@ float humidityVal = 0;
 float feelsLike = 0;
 float windSpeed = 0;
 String cityName = "";
+float latitude = 0;
+float longitude = 0;
+bool useLocation = false;
 
 /* ---------- FLAGS ---------- */
 bool citySelected = false;
@@ -35,7 +40,7 @@ unsigned long startTime = 0;
 
 /* ================= HTML PAGES ================= */
 
-// WiFi Setup Page
+// WiFi Setup Page (unchanged from previous version)
 const char setup_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -131,7 +136,7 @@ document.getElementById('form').onsubmit = async function(e) {
 </html>
 )rawliteral";
 
-// Weather Page
+// Weather Page with Location Support
 const char weather_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -270,21 +275,75 @@ body{
 #setup{
   display:none;
 }
-#setup .input-group{
+.tab-buttons{
+  display:flex;
+  gap:10px;
+  margin-bottom:20px;
+  border-bottom:2px solid #e2e8f0;
+  padding-bottom:15px;
+}
+.tab-btn{
+  flex:1;
+  padding:12px;
+  background:#edf2f7;
+  border:none;
+  border-radius:8px;
+  font-size:14px;
+  font-weight:600;
+  color:#718096;
+  cursor:pointer;
+  transition:all 0.3s;
+}
+.tab-btn.active{
+  background:#667eea;
+  color:white;
+}
+.tab-content{
+  display:none;
+}
+.tab-content.active{
+  display:block;
+}
+.input-group{
   margin-bottom:20px;
 }
-#setup input{
+.input-group label{
+  display:block;
+  margin-bottom:8px;
+  color:#4a5568;
+  font-weight:500;
+  font-size:14px;
+}
+.input-group input{
   width:100%;
-  padding:16px;
+  padding:14px;
   border:2px solid #e2e8f0;
-  border-radius:12px;
+  border-radius:10px;
   font-size:16px;
   background:#fff;
   color:#2d3748;
 }
-#setup input:focus{
+.input-group input:focus{
   outline:none;
   border-color:#667eea;
+}
+.coords-row{
+  display:flex;
+  gap:15px;
+}
+.coords-row .input-group{
+  flex:1;
+}
+.location-info{
+  background:#f7fafc;
+  padding:15px;
+  border-radius:10px;
+  margin-bottom:20px;
+  border:1px solid #e2e8f0;
+}
+.location-info p{
+  margin:5px 0;
+  color:#4a5568;
 }
 .spinner{
   position:fixed;
@@ -321,12 +380,46 @@ body{
     <p id="subtitle">Real-time weather updates</p>
   </div>
 
-  <!-- City Setup -->
+  <!-- Location Setup -->
   <div id="setup" class="card">
-    <div class="input-group">
-      <input type="text" id="city" placeholder="Enter city name (e.g., Kolkata, London, Tokyo)">
+    <div class="tab-buttons">
+      <button class="tab-btn active" onclick="showTab('cityTab')">📍 City</button>
+      <button class="tab-btn" onclick="showTab('locationTab')">🌍 My Location</button>
     </div>
-    <button class="btn btn-primary" onclick="saveCity()">Save City</button>
+    
+    <!-- City Tab -->
+    <div id="cityTab" class="tab-content active">
+      <div class="input-group">
+        <label for="city">Enter city name</label>
+        <input type="text" id="city" placeholder="e.g., Kolkata, London, Tokyo">
+      </div>
+      <button class="btn btn-primary" onclick="saveCity()">Use This City</button>
+    </div>
+    
+    <!-- Location Tab -->
+    <div id="locationTab" class="tab-content">
+      <div class="location-info">
+        <p><strong>📍 Use your current location</strong></p>
+        <p style="font-size:13px;color:#718096;">We'll get your GPS coordinates and use them to fetch accurate local weather.</p>
+      </div>
+      
+      <div class="coords-row">
+        <div class="input-group">
+          <label for="latitude">Latitude</label>
+          <input type="number" id="latitude" placeholder="e.g., 22.5726" step="0.0001">
+        </div>
+        <div class="input-group">
+          <label for="longitude">Longitude</label>
+          <input type="number" id="longitude" placeholder="e.g., 88.3639" step="0.0001">
+        </div>
+      </div>
+      
+      <div style="margin:20px 0;">
+        <button class="btn btn-secondary" onclick="getMyLocation()">📍 Get My Location</button>
+      </div>
+      
+      <button class="btn btn-primary" onclick="saveLocation()">Use This Location</button>
+    </div>
   </div>
 
   <!-- Weather Display -->
@@ -354,8 +447,12 @@ body{
       </div>
     </div>
     
+    <div style="margin:15px 0;text-align:center;">
+      <span id="locationType" style="color:#718096;font-size:14px;"></span>
+    </div>
+    
     <div class="button-group">
-      <button class="btn btn-primary" onclick="changeCity()">Change City</button>
+      <button class="btn btn-primary" onclick="changeLocation()">Change Location</button>
       <a href="/settings" class="btn btn-secondary">⚙️ Settings</a>
     </div>
   </div>
@@ -394,11 +491,49 @@ body{
 <!-- Loading Spinner -->
 <div class="spinner" id="spinner">
   <div class="loader"></div>
-  <div class="spinner-text" id="spinnerText">Saving city...</div>
+  <div class="spinner-text" id="spinnerText">Loading...</div>
 </div>
 
 <script>
 let updating = false;
+let currentTab = 'cityTab';
+
+function showTab(tabId) {
+  // Hide all tabs
+  document.querySelectorAll('.tab-content').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  // Show selected tab
+  document.getElementById(tabId).classList.add('active');
+  document.querySelector(`[onclick="showTab('${tabId}')"]`).classList.add('active');
+  currentTab = tabId;
+}
+
+function getMyLocation() {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported by your browser');
+    return;
+  }
+  
+  showSpinner('Getting your location...');
+  
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      document.getElementById('latitude').value = position.coords.latitude.toFixed(6);
+      document.getElementById('longitude').value = position.coords.longitude.toFixed(6);
+      hideSpinner();
+    },
+    (error) => {
+      hideSpinner();
+      alert('Unable to get your location. Please enter coordinates manually.');
+      console.error('Geolocation error:', error);
+    }
+  );
+}
 
 async function loadWeather() {
   if(updating) return;
@@ -408,17 +543,21 @@ async function loadWeather() {
     const data = await response.json();
     
     if(!data.citySelected) {
-      // Show city setup
+      // Show location setup
       document.getElementById('setup').style.display = 'block';
       document.getElementById('weather').style.display = 'none';
-      document.getElementById('title').textContent = 'Select City';
-      document.getElementById('subtitle').textContent = 'Enter your city to get weather updates';
+      document.getElementById('title').textContent = 'Set Location';
+      document.getElementById('subtitle').textContent = 'Choose how to get weather data';
     } else {
       // Show weather
       document.getElementById('setup').style.display = 'none';
       document.getElementById('weather').style.display = 'block';
-      document.getElementById('title').textContent = data.city + ' Weather';
-      document.getElementById('subtitle').textContent = 'Last updated: Just now';
+      document.getElementById('title').textContent = data.displayName + ' Weather';
+      document.getElementById('subtitle').textContent = 'Last updated: ' + data.lastUpdate;
+      
+      // Update location type
+      document.getElementById('locationType').textContent = 
+        data.useLocation ? '📍 Using your location' : '🏙️ Using city: ' + data.city;
       
       // Update weather values
       document.getElementById('t').textContent = data.temperature;
@@ -449,52 +588,109 @@ async function saveCity() {
   }
   
   updating = true;
-  document.getElementById('spinner').style.display = 'flex';
-  document.getElementById('spinnerText').textContent = 'Saving city...';
+  showSpinner('Saving city...');
   
   try {
-    await fetch('/setCity?name=' + encodeURIComponent(city));
-    
-    document.getElementById('spinnerText').textContent = 'City saved! Loading weather...';
+    await fetch('/setCity?name=' + encodeURIComponent(city) + '&type=city');
     
     // Wait a moment then reload
     setTimeout(() => {
-      document.getElementById('spinner').style.display = 'none';
+      hideSpinner();
       updating = false;
       loadWeather();
     }, 1500);
     
   } catch(error) {
-    document.getElementById('spinner').style.display = 'none';
+    hideSpinner();
     updating = false;
     alert('Failed to save city. Please try again.');
     console.error('Error saving city:', error);
   }
 }
 
-function changeCity() {
+async function saveLocation() {
+  const latInput = document.getElementById('latitude');
+  const lonInput = document.getElementById('longitude');
+  const lat = latInput.value.trim();
+  const lon = lonInput.value.trim();
+  
+  if(!lat || !lon) {
+    alert('Please enter both latitude and longitude');
+    return;
+  }
+  
+  // Validate coordinates
+  const latNum = parseFloat(lat);
+  const lonNum = parseFloat(lon);
+  
+  if(isNaN(latNum) || isNaN(lonNum) || latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+    alert('Please enter valid coordinates:\nLatitude: -90 to 90\nLongitude: -180 to 180');
+    return;
+  }
+  
+  updating = true;
+  showSpinner('Saving location...');
+  
+  try {
+    await fetch('/setLocation?lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon) + '&type=location');
+    
+    // Wait a moment then reload
+    setTimeout(() => {
+      hideSpinner();
+      updating = false;
+      loadWeather();
+    }, 1500);
+    
+  } catch(error) {
+    hideSpinner();
+    updating = false;
+    alert('Failed to save location. Please try again.');
+    console.error('Error saving location:', error);
+  }
+}
+
+function changeLocation() {
   document.getElementById('setup').style.display = 'block';
   document.getElementById('weather').style.display = 'none';
-  document.getElementById('title').textContent = 'Change City';
-  document.getElementById('subtitle').textContent = 'Enter new city name';
+  document.getElementById('title').textContent = 'Change Location';
+  document.getElementById('subtitle').textContent = 'Choose how to get weather data';
+  
+  // Reset tabs
+  showTab('cityTab');
   document.getElementById('city').value = '';
-  document.getElementById('city').focus();
+  document.getElementById('latitude').value = '';
+  document.getElementById('longitude').value = '';
+}
+
+function showSpinner(text) {
+  document.getElementById('spinnerText').textContent = text;
+  document.getElementById('spinner').style.display = 'flex';
+}
+
+function hideSpinner() {
+  document.getElementById('spinner').style.display = 'none';
 }
 
 // Auto-refresh every 30 seconds
 loadWeather();
 setInterval(loadWeather, 30000);
 
-// Handle Enter key in city input
+// Handle Enter key in inputs
 document.getElementById('city')?.addEventListener('keypress', function(e) {
   if(e.key === 'Enter') saveCity();
+});
+document.getElementById('latitude')?.addEventListener('keypress', function(e) {
+  if(e.key === 'Enter') saveLocation();
+});
+document.getElementById('longitude')?.addEventListener('keypress', function(e) {
+  if(e.key === 'Enter') saveLocation();
 });
 </script>
 </body>
 </html>
 )rawliteral";
 
-// Settings Page
+// Settings Page (updated with location info)
 const char settings_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -604,6 +800,22 @@ body{
 .btn-secondary:hover{
   background:#e2e8f0;
 }
+.location-badge{
+  display:inline-block;
+  padding:4px 12px;
+  border-radius:20px;
+  font-size:12px;
+  font-weight:600;
+  margin-left:10px;
+}
+.location-badge.city{
+  background:#c6f6d5;
+  color:#22543d;
+}
+.location-badge.gps{
+  background:#bee3f8;
+  color:#2c5282;
+}
 </style>
 </head>
 <body>
@@ -640,6 +852,35 @@ body{
   </div>
 
   <div class="card">
+    <h2>📍 Location Settings</h2>
+    <div class="info-grid">
+      <div class="info-row">
+        <span class="info-label">🎯 Type</span>
+        <span class="info-value">
+          %LOC_TYPE%
+          <span class="location-badge %LOC_BADGE%">%LOC_BADGE_TEXT%</span>
+        </span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">🏙️ City Name</span>
+        <span class="info-value">%CITY%</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">📍 Latitude</span>
+        <span class="info-value">%LAT%</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">📍 Longitude</span>
+        <span class="info-value">%LON%</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">⏱️ Last Update</span>
+        <span class="info-value">%LAST_UPDATE%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>🔧 System Information</h2>
     <div class="info-grid">
       <div class="info-row">
@@ -654,10 +895,6 @@ body{
         <span class="info-label">🆔 Chip ID</span>
         <span class="info-value">%CHIPID%</span>
       </div>
-      <div class="info-row">
-        <span class="info-label">🏙️ Current City</span>
-        <span class="info-value">%CITY%</span>
-      </div>
     </div>
   </div>
 
@@ -667,8 +904,8 @@ body{
       Warning: These actions cannot be undone. ESP will restart in WiFi setup mode.
     </p>
     <div class="btn-group">
-      <button class="btn btn-danger" onclick="if(confirm('This will erase WiFi settings. Continue?')) location.href='/reset'">
-        🔄 Reset WiFi Settings
+      <button class="btn btn-danger" onclick="if(confirm('This will erase all settings. Continue?')) location.href='/reset'">
+        🔄 Reset All Settings
       </button>
       <a href="/" class="btn btn-secondary">⬅️ Back to Weather</a>
     </div>
@@ -716,8 +953,35 @@ void saveCity(String city) {
   for(int i = 0; i < city.length(); i++) {
     EEPROM.write(CITY_ADDR + 1 + i, city[i]);
   }
+  // Mark as city mode (type=0)
+  EEPROM.write(CITY_ADDR + 31, 0);
   EEPROM.commit();
   Serial.println("[EEPROM] City saved");
+}
+
+void saveLocation(float lat, float lon) {
+  Serial.println("[EEPROM] Saving location: " + String(lat, 6) + ", " + String(lon, 6));
+  
+  // Save city name as "Lat,Lon" for display
+  String locStr = String(lat, 6) + "," + String(lon, 6);
+  EEPROM.write(CITY_ADDR, locStr.length());
+  for(int i = 0; i < locStr.length(); i++) {
+    EEPROM.write(CITY_ADDR + 1 + i, locStr[i]);
+  }
+  
+  // Mark as location mode (type=1)
+  EEPROM.write(CITY_ADDR + 31, 1);
+  
+  // Save lat/lon as floats (4 bytes each)
+  uint8_t *latBytes = (uint8_t*)&lat;
+  uint8_t *lonBytes = (uint8_t*)&lon;
+  for(int i = 0; i < 4; i++) {
+    EEPROM.write(LAT_ADDR + i, latBytes[i]);
+    EEPROM.write(LON_ADDR + i, lonBytes[i]);
+  }
+  
+  EEPROM.commit();
+  Serial.println("[EEPROM] Location saved");
 }
 
 String loadCity() {
@@ -728,6 +992,22 @@ String loadCity() {
     buf[i] = EEPROM.read(CITY_ADDR + 1 + i);
   }
   buf[len] = '\0';
+  
+  // Check if we're in location mode
+  useLocation = (EEPROM.read(CITY_ADDR + 31) == 1);
+  
+  // If in location mode, load lat/lon from their addresses
+  if(useLocation && len > 0) {
+    uint8_t latBytes[4], lonBytes[4];
+    for(int i = 0; i < 4; i++) {
+      latBytes[i] = EEPROM.read(LAT_ADDR + i);
+      lonBytes[i] = EEPROM.read(LON_ADDR + i);
+    }
+    latitude = *(float*)latBytes;
+    longitude = *(float*)lonBytes;
+    Serial.println("[EEPROM] Loaded location: " + String(latitude, 6) + ", " + String(longitude, 6));
+  }
+  
   return String(buf);
 }
 
@@ -765,21 +1045,37 @@ bool connectWiFi() {
 
 /* ================= WEATHER FETCH ================= */
 void fetchWeather() {
-  if(cityName == "") return;
+  if(cityName == "" && !useLocation) return;
 
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
 
-  String url = "https://api.weatherapi.com/v1/current.json?key=" +
-               String(APIKEY) + "&q=" + cityName + "&aqi=no";
+  String url;
+  if(useLocation) {
+    // Use latitude/longitude
+    url = "https://api.weatherapi.com/v1/current.json?key=" +
+          String(APIKEY) + "&q=" + 
+          String(latitude, 6) + "," + String(longitude, 6) + "&aqi=no";
+    Serial.println("[Weather] Fetching by location: " + String(latitude, 6) + ", " + String(longitude, 6));
+  } else {
+    // Use city name
+    url = "https://api.weatherapi.com/v1/current.json?key=" +
+          String(APIKEY) + "&q=" + cityName + "&aqi=no";
+    Serial.println("[Weather] Fetching by city: " + cityName);
+  }
 
-  Serial.println("[Weather] Fetching: " + cityName);
-  
   if(https.begin(client, url)) {
     int code = https.GET();
     if(code > 0) {
       String payload = https.getString();
+      
+      // Extract location name from response
+      int nameIdx = payload.indexOf("\"name\":\"");
+      if(nameIdx > 0) {
+        int nameEndIdx = payload.indexOf("\"", nameIdx + 8);
+        cityName = payload.substring(nameIdx + 8, nameEndIdx);
+      }
       
       int tempIdx = payload.indexOf("\"temp_c\":");
       int humIdx = payload.indexOf("\"humidity\":");
@@ -798,7 +1094,11 @@ void fetchWeather() {
       if(windIdx > 0) {
         windSpeed = payload.substring(windIdx + 11, payload.indexOf(",", windIdx)).toFloat();
       }
-      Serial.println("[Weather] Fetched: Temp=" + String(temperature,1) + "°C, Humidity=" + String(humidityVal,0) + "%, Wind=" + String(windSpeed,1) + "kph");
+      
+      Serial.println("[Weather] Fetched: " + cityName + 
+                    " Temp=" + String(temperature,1) + "°C" +
+                    " Humidity=" + String(humidityVal,0) + "%" +
+                    " Wind=" + String(windSpeed,1) + "kph");
     } else {
       Serial.println("[Weather] Failed to fetch, code: " + String(code));
     }
@@ -824,6 +1124,23 @@ String getUptime() {
   return result;
 }
 
+String getLastUpdateTime() {
+  unsigned long secondsSince = (millis() - lastFetch) / 1000;
+  if(lastFetch == 0) return "Never";
+  
+  if(secondsSince < 60) return "Just now";
+  else if(secondsSince < 3600) return String(secondsSince / 60) + " minutes ago";
+  else if(secondsSince < 86400) return String(secondsSince / 3600) + " hours ago";
+  else return String(secondsSince / 86400) + " days ago";
+}
+
+String getDisplayName() {
+  if(useLocation) {
+    return cityName; // cityName will contain the location name from API response
+  }
+  return cityName;
+}
+
 /* ================= WEB SERVER ROUTES ================= */
 void setupWeatherRoutes() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
@@ -833,6 +1150,7 @@ void setupWeatherRoutes() {
   server.on("/setCity", HTTP_GET, [](AsyncWebServerRequest *req) {
     if(req->hasParam("name")) {
       cityName = req->getParam("name")->value();
+      useLocation = false;
       saveCity(cityName);
       citySelected = true;
       fetchWeather(); // Fetch immediately after setting city
@@ -842,14 +1160,31 @@ void setupWeatherRoutes() {
     }
   });
 
+  server.on("/setLocation", HTTP_GET, [](AsyncWebServerRequest *req) {
+    if(req->hasParam("lat") && req->hasParam("lon")) {
+      latitude = req->getParam("lat")->value().toFloat();
+      longitude = req->getParam("lon")->value().toFloat();
+      useLocation = true;
+      saveLocation(latitude, longitude);
+      citySelected = true;
+      fetchWeather(); // Fetch immediately after setting location
+      req->send(200, "application/json", "{\"status\":\"ok\"}");
+    } else {
+      req->send(400, "application/json", "{\"error\":\"Missing coordinates\"}");
+    }
+  });
+
   server.on("/weather", HTTP_GET, [](AsyncWebServerRequest *req) {
     String json = "{";
     json += "\"citySelected\":" + String(citySelected ? "true" : "false") + ",";
     json += "\"city\":\"" + cityName + "\",";
+    json += "\"displayName\":\"" + getDisplayName() + "\",";
+    json += "\"useLocation\":" + String(useLocation ? "true" : "false") + ",";
     json += "\"temperature\":" + String(temperature, 1) + ",";
     json += "\"humidity\":" + String(humidityVal, 0) + ",";
     json += "\"feelsLike\":" + String(feelsLike, 1) + ",";
     json += "\"windSpeed\":" + String(windSpeed, 1) + ",";
+    json += "\"lastUpdate\":\"" + getLastUpdateTime() + "\",";
     
     // System information
     json += "\"wifi\":\"" + WiFi.SSID() + "\",";
@@ -872,7 +1207,23 @@ void setupWeatherRoutes() {
     html.replace("%UPTIME%", getUptime());
     html.replace("%HEAP%", String(ESP.getFreeHeap() / 1024));
     html.replace("%CHIPID%", String(ESP.getChipId(), HEX));
+    
+    // Location info
     html.replace("%CITY%", cityName);
+    html.replace("%LAT%", String(latitude, 6));
+    html.replace("%LON%", String(longitude, 6));
+    html.replace("%LAST_UPDATE%", getLastUpdateTime());
+    
+    if(useLocation) {
+      html.replace("%LOC_TYPE%", "GPS Coordinates");
+      html.replace("%LOC_BADGE%", "gps");
+      html.replace("%LOC_BADGE_TEXT%", "GPS");
+    } else {
+      html.replace("%LOC_TYPE%", "City Name");
+      html.replace("%LOC_BADGE%", "city");
+      html.replace("%LOC_BADGE_TEXT%", "City");
+    }
+    
     req->send(200, "text/html", html);
   });
 
@@ -883,11 +1234,11 @@ void setupWeatherRoutes() {
       ".card{background:white;color:#2d3748;padding:40px;border-radius:20px;text-align:center;max-width:400px;margin:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);}"
       "</style></head><body><div class='card'>"
       "<h2 style='color:#667eea;'>🔄 Resetting...</h2>"
-      "<p>WiFi settings cleared. ESP will restart in WiFi setup mode.</p>"
+      "<p>All settings will be cleared. ESP will restart in WiFi setup mode.</p>"
       "<p style='color:#718096;margin-top:20px;'>Please reconnect to 'ESP8266-Setup' WiFi.</p>"
       "</div></body></html>");
     
-    Serial.println("[System] Reset requested - clearing WiFi settings");
+    Serial.println("[System] Reset requested - clearing all settings");
     delay(1000);
     clearEEPROM();
     delay(2000);
@@ -949,14 +1300,19 @@ void setup() {
     isAPMode = false;
     Serial.println("[Mode] Station Mode - Weather Station Active");
     
-    // Load city from EEPROM
+    // Load location settings from EEPROM
     cityName = loadCity();
     citySelected = cityName != "";
+    
     if (citySelected) {
-      Serial.println("[City] Loaded from EEPROM: " + cityName);
+      if(useLocation) {
+        Serial.println("[Location] Loaded from EEPROM: " + String(latitude, 6) + ", " + String(longitude, 6));
+      } else {
+        Serial.println("[City] Loaded from EEPROM: " + cityName);
+      }
       fetchWeather();
     } else {
-      Serial.println("[City] No city configured - will prompt on first visit");
+      Serial.println("[Location] No location configured - will prompt on first visit");
     }
     
     setupWeatherRoutes();
