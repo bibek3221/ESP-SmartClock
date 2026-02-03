@@ -8,6 +8,7 @@
 #include <TimeLib.h>
 #include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
+#include "secrets.h"
 
 // Uncomment according to your hardware type
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
@@ -18,8 +19,8 @@
 #define CS_PIN 15
 #define TOUCH_PIN 4  // GPIO4 (D2 on NodeMCU) - Change this to your connected pin
 
-char* ssid = "Bibek";              //wifi ssid
-char* password = "Bankim@2004--indranil";      //wifi password
+char* ssid = WIFI_SSID;              //wifi ssid
+char* password = WIFI_PASSWORD;      //wifi password
 const long utcOffsetInSeconds = 19800;  // Time zone offset
 
 WiFiUDP ntpUDP;
@@ -61,7 +62,18 @@ int weatherDisplayState = 0; // 0=temp, 1=feels like, 2=humidity
 unsigned long weatherStateChangeTime = 0;
 const unsigned long WEATHER_STATE_DURATION = 3000; // Show each weather info for 3 seconds
 
-const char* WEATHER_API_URL = "http://api.weatherapi.com/v1/current.json?key=4e8068c62ffc4034a07163742262401&q=22.5697,88.3697";
+// const char* WEATHER_API_URL = "http://api.weatherapi.com/v1/current.json?key=4e8068c62ffc4034a07163742262401&q=22.5697,88.3697";
+
+// Build API URL using secrets
+char WEATHER_API_FULL_URL[150];
+
+void buildWeatherURL() {
+  snprintf(WEATHER_API_FULL_URL, sizeof(WEATHER_API_FULL_URL), 
+           "%s?key=%s&q=%s", 
+           WEATHER_API_URL, 
+           WEATHER_API_KEY, 
+           WEATHER_LOCATION);
+}
 
 // Variables to track if date functions have been called today
 bool dateFunction_Jan1_called = false;

@@ -109,6 +109,33 @@ Make sure the following libraries are installed in Arduino IDE:
 
 ---
 
+
+## Setup Instructions
+
+1. **Install dependencies:**
+   - MD_Parola library
+   - MD_MAX72xx library
+   - ArduinoJson library
+   - ESP8266WiFi library
+
+2. **Configure secrets:**
+   - Copy `secrets.example.h` to `secrets.h`
+   - Edit `secrets.h` with your actual values:
+     - WiFi SSID and password
+     - WeatherAPI key (get from [weatherapi.com](https://www.weatherapi.com/))
+     - Your location coordinates
+
+3. **Upload the code to your ESP8266**
+
+4. **Hardware connections:**
+   - Connect LED matrix to ESP8266
+   - Touch switch to GPIO4 (D2)
+
+## Important Security Note
+
+**NEVER commit `secrets.h` to GitHub!** Only commit `secrets.example.h`.
+
+
 ## 🎵 Sound Functions
 
 Songs are modularized into separate files/functions, for example:

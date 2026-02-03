@@ -1,0 +1,28 @@
+ 
+
+ # Secret files
+secrets.h
+*.private
+*.secret
+.env
+.env.local
+
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+
+# Arduino IDE
+*.elf
+*.bin
+*.eep
+*.hex
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
