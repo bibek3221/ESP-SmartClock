@@ -32,13 +32,14 @@ char Seconds[] = "00";
 char Date[] = "00-00-2000";
 byte last_second, second_, minute_, hour_, day_, month_;
 int year_;
+int _hour , _minute;
 
 // Display mode
 DisplayMode currentMode = SHOW_TIME;
 unsigned long modeDisplayStart = 0;
 
 // Touch handler object
-TouchHandler touchHandler(4);  // GPIO4
+TouchHandler touchHandler(12);  // GPIO4
 
 // Weather handler object
 WeatherHandler weatherHandler;
@@ -101,9 +102,10 @@ void loop() {
     year_ = year(unix_epoch);
     
     // Check for special dates
-    if (hour_ == 0 && minute_ == 0 && second_ == 0) {
-      checkSpecialDates(month_, day_, year_);
-    }
+    // if (hour_ == 0 && minute_ == 0 && second_ == 0) {
+    //   checkSpecialDates(month_, day_, year_);
+    // }
+    checkSpecialDates(month_, day_, year_, hour_, minute_);
     
     // Update time strings
     updateTimeStrings();
