@@ -17,11 +17,11 @@ void setup() {
   
   // Demo: Play all songs
   Serial.println("\n1. Playing Happy Birthday...");
-  // playHappyBirthday();
+  playHappyBirthday();
   delay(2000);
   
   Serial.println("\n2. Playing Christmas Carol...");
-  // playChristmasCarol();
+  playChristmasCarol();
   delay(2000);
   
   Serial.println("\n3. Playing Happy New Year...");
@@ -30,7 +30,7 @@ void setup() {
   
   
   Serial.println("\n6. Playing Jana Gana Mana (ORIGINAL - Stereo)...");
-  // playJanaGanaManaOriginalStereo();
+  playJanaGanaManaOriginalStereo();
   delay(2000);
   
   Serial.println("\n7. Playing Happy Anniversary...");

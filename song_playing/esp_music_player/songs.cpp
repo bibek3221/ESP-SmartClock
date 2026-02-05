@@ -3,8 +3,8 @@
 #include <Arduino.h>  // ADD THIS LINE
 
 // Buzzer pins (must match main program)
-#define BUZZER_LEFT 14   // D5
-#define BUZZER_RIGHT 12  // D6
+#define BUZZER_LEFT 05   // D2
+#define BUZZER_RIGHT 04 // D1
 
 
 // ============================================

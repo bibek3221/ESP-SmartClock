@@ -1,4 +1,3 @@
-
 #include <MD_Parola.h>
 #include <MD_MAX72xx.h>
 #include "Fonts.h"
@@ -12,6 +11,7 @@
 #include "secrets.h"
 
 // Include modular files
+#include "Songs.h"
 #include "special_dates.h"
 #include "touch_handler.h"
 #include "weather_handler.h"
@@ -20,6 +20,17 @@
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
 #define MAX_DEVICES 4
 #define CS_PIN 15
+
+// Buzzer configuration - Passive buzzer
+#define BUZZER_PIN 5      // D1 (GPIO5) - Tone output
+#define BUZZER_GND 4      // D2 (GPIO4) - Ground reference
+int lastBeepedHour = -1;  // Track last hour we beeped
+
+// Song display variables
+bool isSongPlaying = false;
+unsigned long songStartTime = 0;
+const char* currentSongMessage = "";
+const unsigned long SONG_DURATION = 15000;  // Adjust based on your song length
 
 // Global display object
 MD_Parola Display = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
@@ -44,13 +55,176 @@ TouchHandler touchHandler(12);  // GPIO4
 // Weather handler object
 WeatherHandler weatherHandler;
 
+// ===== SONG AND MESSAGE FUNCTIONS =====
+
+// Function to show scrolling message using ALL 4 displays
+void showSimpleScrollingMessage(const char* message) {
+  Serial.print("Showing message: ");
+  Serial.println(message);
+  
+  // Save current display configuration
+  Display.setZone(0, 0, 3);  // Use ALL 4 modules for zone 0
+  Display.setZone(1, 0, 0);  // Disable zone 1
+  Display.setFont(0, NULL);  // Use default font for better readability
+  
+  // Clear display
+  Display.displayClear(0);
+  Display.displayClear(1);
+  
+  // Display scrolling message across all 4 modules
+  Display.displayZoneText(0, message, PA_LEFT, 40, 0, PA_SCROLL_LEFT);
+  
+  // Animate for 5 seconds
+  unsigned long startTime = millis();
+  while (millis() - startTime < 5000) {
+    Display.displayAnimate();
+    delay(10);
+  }
+  
+  // Restore original display configuration
+  Display.setZone(0, 1, 3);  // Back to original: modules 1-3
+  Display.setZone(1, 0, 0);  // Back to original: module 0
+  Display.setFont(0, SmallDigits);  // Restore original font
+}
+
+// Function to start song with message
+void startSongWithMessage(void (*songFunction)(), const char* message, byte hour) {
+  if (hour == 8 || hour == 12 || hour == 16 || hour == 20 || hour > 8) {
+    Serial.print("Starting song at hour: ");
+    Serial.println(hour);
+    
+    // Show scrolling message first
+    showSimpleScrollingMessage(message);
+    
+    // Setup for song display
+    isSongPlaying = true;
+    songStartTime = millis();
+    currentSongMessage = message;
+    
+    // Configure display for song message
+    Display.setZone(0, 0, 3);  // Use ALL 4 modules
+    Display.setZone(1, 0, 0);  // Disable zone 1
+    Display.setFont(0, NULL);  // Default font
+    Display.displayZoneText(0, message, PA_CENTER, 50, 0, PA_NO_EFFECT);
+    Display.displayAnimate();
+    
+    // Start playing song
+    songFunction();
+  }
+}
+
+// Function to check and update song display
+void updateSongDisplay() {
+  if (isSongPlaying) {
+    // Keep message displayed while song is playing
+    if (millis() - songStartTime < SONG_DURATION) {
+      // Make the message blink to be noticeable
+      static bool blinkState = false;
+      static unsigned long lastBlink = 0;
+      
+      if (millis() - lastBlink > 500) {  // Blink every 500ms
+        blinkState = !blinkState;
+        lastBlink = millis();
+        
+        if (blinkState) {
+          Display.displayZoneText(0, currentSongMessage, PA_CENTER, 50, 0, PA_NO_EFFECT);
+        } else {
+          // Show empty during blink off
+          Display.displayZoneText(0, "     ", PA_CENTER, 50, 0, PA_NO_EFFECT);
+        }
+        Display.displayAnimate();
+      }
+    } else {
+      // Song finished
+      isSongPlaying = false;
+      
+      // Restore original display configuration
+      Display.setZone(0, 1, 3);  // Back to original
+      Display.setZone(1, 0, 0);  // Back to original
+      Display.setFont(0, SmallDigits);
+      Display.displayClear(0);
+      Display.displayClear(1);
+      
+      // Restore time display
+      currentMode = SHOW_TIME;
+      updateDisplay();
+    }
+  }
+}
+
+// Helper function to play song at intervals
+void playSongAtIntervals(void (*songFunction)(), const char* message, byte hour) {
+  startSongWithMessage(songFunction, message, hour);
+}
+
+// ===== SPECIAL DATE FUNCTIONS =====
+
+void new_year(byte hour) {
+  Serial.println("Happy New Year!");
+  playSongAtIntervals(playHappyNewYear, "HAPPY NEW YEAR!", hour);
+}
+
+void happy(byte hour) {
+  Serial.println("Special Day Celebration!");
+  playSongAtIntervals(playHappyBirthday, "HAPPY SPECIAL DAY!", hour);
+}
+
+void independence_day(byte hour) {
+  Serial.println("Happy Independence Day!");
+  playSongAtIntervals(playJanaGanaManaOriginalStereo, "HAPPY INDEPENDENCE DAY!", hour);
+}
+
+void republic_day(byte hour) {
+  Serial.println("Happy Republic Day!");
+  playSongAtIntervals(playJanaGanaManaOriginalStereo, "HAPPY REPUBLIC DAY!", hour);
+}
+
+void crish(byte hour) {
+  Serial.println("Merry Christmas!");
+  
+  if (hour == 8 || hour == 12 || hour == 16 || hour == 20) {
+    // Play full song at specific hours
+    playSongAtIntervals(playChristmasCarol, "MERRY CHRISTMAS!", hour);
+  } else {
+    // Just show scrolling message for other hours
+    showSimpleScrollingMessage("MERRY CHRISTMAS!");
+  }
+}
+
+// ===== BUZZER FUNCTIONS =====
+
+// Simple tone function for passive buzzer
+void playTone(int frequency, int duration) {
+  tone(BUZZER_PIN, frequency, duration);
+  delay(duration);  // Wait for tone to finish
+  noTone(BUZZER_PIN);
+}
+
+// Double beep for hourly indicator
+void hourlyDoubleBeep() {
+  // First beep
+  playTone(800, 150);
+  delay(100);
+  // Second beep
+  playTone(800, 150);
+}
+
+// Test beep on startup
+void testBeep() {
+  playTone(600, 100);
+  delay(50);
+  playTone(600, 100);
+}
+
+// ===== SETUP =====
+
 void setup() {
   Serial.begin(115200);
   
   // Initialize display
   Display.begin(2);
-  Display.setZone(0, 1, 3);
-  Display.setZone(1, 0, 0);
+  Display.setZone(0, 1, 3);  // Zone 0: modules 1-3 (for time HH:MM)
+  Display.setZone(1, 0, 0);  // Zone 1: module 0 (for seconds SS)
   Display.setFont(0, SmallDigits);
   Display.setFont(1, SmallerDigits);
   Display.setIntensity(2);
@@ -58,6 +232,12 @@ void setup() {
   
   // Initialize touch handler
   touchHandler.begin();
+  
+  // Initialize buzzer pins
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(BUZZER_GND, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(BUZZER_GND, LOW);  // Set as ground
   
   // Show WiFi connecting message
   Display.displayZoneText(0, "WIFI", PA_LEFT, Display.getSpeed(), Display.getPause(), PA_NO_EFFECT);
@@ -77,7 +257,12 @@ void setup() {
   
   // Initialize weather handler
   weatherHandler.begin();
+  
+  // Test beep on startup
+  testBeep();
 }
+
+// ===== MAIN LOOP =====
 
 void loop() {
   // Update time
@@ -101,38 +286,53 @@ void loop() {
     month_ = month(unix_epoch);
     year_ = year(unix_epoch);
     
-    // Check for special dates
-    // if (hour_ == 0 && minute_ == 0 && second_ == 0) {
-    //   checkSpecialDates(month_, day_, year_);
-    // }
-    checkSpecialDates(month_, day_, year_, hour_, minute_);
+    // Hourly beep - double beep at the start of each hour
+    if (minute_ == 0 && second_ == 0) {
+      // Only beep if it's a new hour (prevent multiple beeps in same hour)
+      if (hour_ != lastBeepedHour) {
+        hourlyDoubleBeep();
+        lastBeepedHour = hour_;
+      }
+    }
+    
+    // Check for special dates (don't run if song is already playing)
+    if (!isSongPlaying) {
+      checkSpecialDates(month_, day_, year_, hour_, minute_);
+    }
     
     // Update time strings
     updateTimeStrings();
     
-    // Update display based on mode
-    updateDisplay();
+    // Update display based on mode (only if not showing song)
+    if (!isSongPlaying) {
+      updateDisplay();
+    }
     
     last_second = second_;
   }
   
-  // Handle weather display cycling
-  if (currentMode == SHOW_WEATHER) {
+  // Handle weather display cycling (only if not showing song)
+  if (!isSongPlaying && currentMode == SHOW_WEATHER) {
     weatherHandler.updateDisplayState(currentMillis);
     Display.displayZoneText(0, weatherHandler.getLine1(), PA_LEFT, Display.getSpeed(), Display.getPause(), PA_NO_EFFECT);
     Display.displayZoneText(1, weatherHandler.getLine2(), PA_LEFT, Display.getSpeed(), Display.getPause(), PA_NO_EFFECT);
   }
   
-  // Check if we should return to time display
-  if (currentMode != SHOW_TIME) {
+  // Check if we should return to time display (only if not showing song)
+  if (!isSongPlaying && currentMode != SHOW_TIME) {
     if (currentMillis - modeDisplayStart >= getModeDuration(currentMode)) {
       currentMode = SHOW_TIME;
     }
   }
   
+  // Update song display if playing
+  updateSongDisplay();
+  
   Display.displayAnimate();
   delay(50);
 }
+
+// ===== HELPER FUNCTIONS =====
 
 void updateTimeStrings() {
   Seconds[1] = second_ % 10 + 48;
