@@ -1,42 +1,30 @@
-// wifi_manager.h - Complete version
 #ifndef WIFI_MANAGER_H
 #define WIFI_MANAGER_H
 
 #include <ESP8266WiFi.h>
+#include <DNSServer.h>
 #include <ESP8266WebServer.h>
-#include <EEPROM.h>
+#include <WiFiManager.h>
+#include <MD_Parola.h>
 
-// Configuration structure stored in EEPROM
-struct WiFiConfig {
-    char ssid[32];
-    char password[64];
-    bool configured;
-};
-
-class WiFiManager {
-private:
-    ESP8266WebServer* server;
-    bool configMode;
-    bool serverRunning;
+class WiFiClockManager {
+  private:
+    WiFiManager wifiManager;
+    MD_Parola* display = nullptr;
+    bool wifiConfigured = false;
+    String deviceName;
     
-    // HTML pages (progmem to save RAM)
-    const char* indexPage;
-    const char* successPage;
+    void showDisplayMessage(const char* line1, const char* line2, int duration = 2000);
+    void startConfigPortal();
     
-    void startAPMode();
+  public:
+    WiFiClockManager();
     
-public:
-    WiFiManager();
-    ~WiFiManager();
-    
-    bool begin();
-    void handleClient();
-    bool isConfigMode();
-    bool loadConfig(WiFiConfig& config);
-    bool saveConfig(const WiFiConfig& config);
-    void stopConfigPortal();
-    
-    String getUptime();
+    void begin(MD_Parola &display);
+    bool isConfigured();
+    void resetSettings();
+    String getDeviceName();
+    String getIPAddress();
 };
 
 #endif

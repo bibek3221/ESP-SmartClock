@@ -2,19 +2,25 @@
 #include <MD_MAX72xx.h>
 #include "Fonts.h"
 #include <SPI.h>
-#include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <TimeLib.h>
 #include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
-#include "secrets.h"
 
 // Include modular files
 #include "Songs.h"
 #include "special_dates.h"
 #include "touch_handler.h"
 #include "weather_handler.h"
+#include "wifi_manager.h"
+
+// ===== DISPLAY MODE ENUM =====
+enum DisplayMode {
+  SHOW_TIME,
+  SHOW_DATE,
+  SHOW_WEATHER
+};
 
 // Hardware configuration
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
@@ -32,8 +38,9 @@ unsigned long songStartTime = 0;
 const char* currentSongMessage = "";
 const unsigned long SONG_DURATION = 15000;  // Adjust based on your song length
 
-// Global display object
+// Global objects
 MD_Parola Display = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
+WiFiClockManager wifiManager;
 
 // Time variables
 WiFiUDP ntpUDP;
@@ -43,7 +50,6 @@ char Seconds[] = "00";
 char Date[] = "00-00-2000";
 byte last_second, second_, minute_, hour_, day_, month_;
 int year_;
-int _hour , _minute;
 
 // Display mode
 DisplayMode currentMode = SHOW_TIME;
@@ -239,18 +245,24 @@ void setup() {
   digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(BUZZER_GND, LOW);  // Set as ground
   
-  // Show WiFi connecting message
-  Display.displayZoneText(0, "WIFI", PA_LEFT, Display.getSpeed(), Display.getPause(), PA_NO_EFFECT);
-  Display.displayZoneText(1, "....", PA_LEFT, Display.getSpeed(), Display.getPause(), PA_NO_EFFECT);
-  Display.displayAnimate();
+  // Initialize WiFi Manager (removes need for secrets.h)
+  wifiManager.begin(Display);
   
-  // Connect to WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Show connected message
+  if (wifiManager.isConfigured()) {
+    String ip = wifiManager.getIPAddress();
+    int lastDot = ip.lastIndexOf('.');
+    String lastOctet = ip.substring(lastDot + 1);
+    
+    Display.displayZoneText(0, "CONNECTED", PA_CENTER, 50, 2000, PA_NO_EFFECT);
+    Display.displayAnimate();
+    delay(2000);
+    
+    Display.displayZoneText(0, "IP", PA_CENTER, 50, 0, PA_NO_EFFECT);
+    Display.displayZoneText(1, lastOctet.c_str(), PA_CENTER, 50, 2000, PA_NO_EFFECT);
+    Display.displayAnimate();
+    delay(2000);
   }
-  Serial.println("\nWiFi Connected");
   
   // Initialize time client
   timeClient.begin();
@@ -382,6 +394,26 @@ void handleTouchEvent(TouchEvent event, unsigned long currentMillis) {
         modeDisplayStart = currentMillis;
         weatherHandler.resetDisplayState(currentMillis);
       }
+      break;
+      
+    case LONG_PRESS:  // Add WiFi reset on long press
+      // Show reset message
+      Display.displayZoneText(0, "RESET", PA_CENTER, 50, 2000, PA_NO_EFFECT);
+      Display.displayZoneText(1, "WIFI", PA_CENTER, 50, 2000, PA_NO_EFFECT);
+      Display.displayAnimate();
+      delay(2000);
+      
+      // Reset WiFi settings
+      wifiManager.resetSettings();
+      
+      // Show rebooting message
+      Display.displayZoneText(0, "REBOOT", PA_CENTER, 50, 2000, PA_NO_EFFECT);
+      Display.displayZoneText(1, "....", PA_CENTER, 50, 2000, PA_NO_EFFECT);
+      Display.displayAnimate();
+      delay(2000);
+      
+      ESP.reset();  // Reboot to start WiFi setup again
+      delay(5000);
       break;
       
     default:

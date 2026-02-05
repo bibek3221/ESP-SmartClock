@@ -2,6 +2,7 @@
 #define WEATHER_HANDLER_H
 
 #include <Arduino.h>
+#include <ESP8266WiFi.h>  // ADD THIS LINE
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
