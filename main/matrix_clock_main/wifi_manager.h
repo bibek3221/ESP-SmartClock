@@ -14,7 +14,7 @@ class WiFiClockManager {
     bool wifiConfigured = false;
     String deviceName;
     
-    void showDisplayMessage(const char* line1, const char* line2, int duration = 2000);
+    // void showDisplayMessage(const char* line1, const char* line2, int duration = 2000);
     void startConfigPortal();
     
   public:

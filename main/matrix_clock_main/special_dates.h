@@ -101,7 +101,7 @@ void checkSpecialDates(byte month, byte day, int year, byte hour, byte minute)
       break;
 
     case 2:  // February
-      if (day == 5 && !feb4_called[0] && hour >= 8) {
+      if (day == 12 && !feb4_called[0] && hour >= 8) {
         if (hour > 8 && minute > 0 && !missed8am) {
           happy(hour);
           feb4_called[0] = true;

@@ -4,10 +4,11 @@
 #include <Arduino.h>
 
 enum TouchEvent {
-  NONE,          // Make sure this is NONE, not NO_EVENT
+  NONE,
   SINGLE_CLICK,
   DOUBLE_CLICK,
-  LONG_PRESS     // Add this
+  LONG_PRESS,
+  WIFI_RESET
 };
 
 class TouchHandler {
@@ -17,48 +18,112 @@ class TouchHandler {
     unsigned long touchStartTime = 0;
     bool touchActive = false;
     int clickCount = 0;
-    const unsigned long DEBOUNCE_DELAY = 50;
-    const unsigned long DOUBLE_CLICK_DELAY = 300;
-    const unsigned long LONG_PRESS_DELAY = 1000;
+    bool longPressDetected = false;
+    bool wifiResetDetected = false;
+    
+    // Timing constants
+    const unsigned long DEBOUNCE_TIME = 50;
+    const unsigned long CLICK_TIME = 400;      // Max time for a click
+    const unsigned long DOUBLE_CLICK_TIME = 400; // Time between clicks
+    const unsigned long LONG_PRESS_TIME = 2000;  // 2 seconds
+    const unsigned long WIFI_RESET_TIME = 7000;  // 7 seconds
+    
+    // Debounce tracking
+    unsigned long lastDebounceTime = 0;
+    int lastStableState = LOW;
+    int currentState = LOW;
     
   public:
     TouchHandler(int pin) : touchPin(pin) {}
     
     void begin() {
       pinMode(touchPin, INPUT);
+      lastStableState = digitalRead(touchPin);
     }
     
     TouchEvent checkTouch(unsigned long currentMillis) {
-      int touchState = digitalRead(touchPin);
-      TouchEvent event = NONE;  // Changed from NO_EVENT to NONE
+      int reading = digitalRead(touchPin);
       
-      if (touchState == HIGH && !touchActive) {
-        // Touch started
+      // Debounce logic
+      if (reading != lastStableState) {
+        lastDebounceTime = currentMillis;
+      }
+      
+      if ((currentMillis - lastDebounceTime) > DEBOUNCE_TIME) {
+        currentState = reading;
+      }
+      
+      lastStableState = reading;
+      
+      // Handle touch start
+      if (currentState == HIGH && !touchActive) {
         touchStartTime = currentMillis;
         touchActive = true;
-      } 
-      else if (touchState == LOW && touchActive) {
-        // Touch ended
+        longPressDetected = false;
+        wifiResetDetected = false;
+        Serial.println("[TOUCH] START");
+      }
+      
+      // Handle touch end
+      if (currentState == LOW && touchActive) {
         touchActive = false;
-        unsigned long touchDuration = currentMillis - touchStartTime;
+        unsigned long duration = currentMillis - touchStartTime;
         
-        if (touchDuration >= LONG_PRESS_DELAY) {
-          clickCount = 0;
+        Serial.print("[TOUCH] END - Duration: ");
+        Serial.println(duration);
+        
+        // Check for WiFi reset (detected during press)
+        if (wifiResetDetected) {
+          Serial.println("[EVENT] WIFI_RESET");
+          return WIFI_RESET;
+        }
+        
+        // Check for long press (detected during press)
+        if (longPressDetected) {
+          Serial.println("[EVENT] LONG_PRESS");
           return LONG_PRESS;
-        } else if (touchDuration >= DEBOUNCE_DELAY) {
+        }
+        
+        // Check for click (short press)
+        if (duration < CLICK_TIME) {
           clickCount++;
           lastTouchTime = currentMillis;
+          Serial.print("[TOUCH] Click count: ");
+          Serial.println(clickCount);
+        }
+      }
+      
+      // Handle active touch (checking for long presses)
+      if (touchActive) {
+        unsigned long duration = currentMillis - touchStartTime;
+        
+        // Check for WiFi reset
+        if (duration >= WIFI_RESET_TIME && !wifiResetDetected) {
+          wifiResetDetected = true;
+          Serial.println("[TOUCH] WiFi reset threshold reached");
+        }
+        // Check for long press
+        else if (duration >= LONG_PRESS_TIME && !longPressDetected) {
+          longPressDetected = true;
+          Serial.println("[TOUCH] Long press threshold reached");
         }
       }
       
       // Check for double click timeout
-      if (clickCount > 0 && (currentMillis - lastTouchTime) >= DOUBLE_CLICK_DELAY) {
-        event = (clickCount == 1) ? SINGLE_CLICK : DOUBLE_CLICK;
+      if (clickCount > 0 && (currentMillis - lastTouchTime) > DOUBLE_CLICK_TIME) {
+        TouchEvent event;
+        if (clickCount == 1) {
+          event = SINGLE_CLICK;
+          Serial.println("[EVENT] SINGLE_CLICK");
+        } else {
+          event = DOUBLE_CLICK;
+          Serial.println("[EVENT] DOUBLE_CLICK");
+        }
         clickCount = 0;
         return event;
       }
       
-      return NONE;  // Changed from NO_EVENT to NONE
+      return NONE;
     }
 };
 

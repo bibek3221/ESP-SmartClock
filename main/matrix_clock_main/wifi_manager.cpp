@@ -1,10 +1,11 @@
 #include "wifi_manager.h"
 #include <Arduino.h>
+#include "display_utils.h"
 
 WiFiClockManager::WiFiClockManager() {
-  deviceName = "MatrixClock-" + String(ESP.getChipId(), HEX);
+  deviceName = "ESP SmartClock";
 }
-
+// function to connect to wifi
 void WiFiClockManager::begin(MD_Parola &display) {
   Serial.println("Initializing WiFi Manager...");
   
@@ -17,11 +18,12 @@ void WiFiClockManager::begin(MD_Parola &display) {
   wifiManager.setDebugOutput(true);
   
   // Show startup message
-  showDisplayMessage("CLOCK", "BOOT", 2000);
+  // showScrollingMessageContinuous("Clock Booting", 1000);
   
   // Try to connect with saved credentials
   if (WiFi.SSID() != "") {
-    showDisplayMessage("TRYING", "WIFI", 0);
+    // showDisplayMessage("TRYING", "WIFI", 0);
+    // showScrollingMessage("Connecting");
     
     WiFi.begin(WiFi.SSID().c_str(), WiFi.psk().c_str());
     
@@ -43,7 +45,7 @@ void WiFiClockManager::begin(MD_Parola &display) {
     if (WiFi.status() == WL_CONNECTED) {
       wifiConfigured = true;
       Serial.println("\nConnected to saved WiFi!");
-      showDisplayMessage("WIFI", "OK", 2000);
+      showScrollingMessage("Welcome", 2000);
       return;
     }
   }
@@ -52,38 +54,47 @@ void WiFiClockManager::begin(MD_Parola &display) {
   startConfigPortal();
 }
 
+// function form connecting to wifi and diplay updates
 void WiFiClockManager::startConfigPortal() {
   Serial.println("Starting configuration portal...");
   
-  // Show AP mode instructions
-  showDisplayMessage("CONNECT", "TO AP", 2000);
+  // Clear display
+  display->displayClear(0);
+  display->displayClear(1);
   
-  // Show AP name (truncated for display)
+  // Show setup instructions
+  // display->displayZoneText(0, "SETUP MODE", PA_CENTER, 50, 0, PA_NO_EFFECT);
+  // display->displayZoneText(1, "ACTIVE", PA_CENTER, 50, 0, PA_NO_EFFECT);
+  // display->displayAnimate();
+  showScrollingMessage("SetUp Device", 2000);
+  // delay(2000);
+  
+  // Show AP name
   String displayName = deviceName;
   if (displayName.length() > 8) displayName = displayName.substring(0, 8);
-  showDisplayMessage("AP:", displayName.c_str(), 3000);
   
-  showDisplayMessage("AP MODE", "ACTIVE", 2000);
+  // display->displayZoneText(0, "CONNECT TO", PA_CENTER, 50, 0, PA_NO_EFFECT);
+  // display->displayZoneText(1, "THIS AP", PA_CENTER, 50, 0, PA_NO_EFFECT);
+  // display->displayAnimate();
+  showScrollingMessage("Connect", 2000);
+  // delay(2000);
+  
   
   // Start configuration portal
   if (!wifiManager.startConfigPortal(deviceName.c_str())) {
     Serial.println("Failed to connect and hit timeout");
-    showDisplayMessage("TIMEOUT", "RETRY", 2000);
-    delay(5000);
+    
+    // display->displayZoneText(0, "TIMEOUT", PA_CENTER, 50, 0, PA_NO_EFFECT);
+    // display->displayZoneText(1, "RETRYING", PA_CENTER, 50, 0, PA_NO_EFFECT);
+    // display->displayAnimate();
+    // delay(2000);
+    showScrollingMessageContinuous("Failed retry some times later",6000);
+    
+    // Retry
     startConfigPortal();
   }
   
   wifiConfigured = true;
-  Serial.println("\nWiFi configured successfully!");
-}
-
-void WiFiClockManager::showDisplayMessage(const char* line1, const char* line2, int duration) {
-  if (display) {
-    display->displayZoneText(0, line1, PA_CENTER, 50, duration, PA_NO_EFFECT);
-    display->displayZoneText(1, line2, PA_CENTER, 50, duration, PA_NO_EFFECT);
-    display->displayAnimate();
-    if (duration > 0) delay(duration);
-  }
 }
 
 bool WiFiClockManager::isConfigured() {
